@@ -2,12 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+
+    <!-- 🔥 COOP / COEP: ESSENCIAL PARA WEBLLM FUNCIONAR -->
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+    <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>paradox</title>
+    <title>Paradox</title>
+
+    <!-- 🔧 POLYFILLS NECESSÁRIOS -->
+    <script>
+      window.global = window;
+      window.process = { env: {} };
+    </script>
+
+    <!-- 🤖 WEBLLM CDN ESTÁVEL -->
+    <script src="https://unpkg.com/@mlc-ai/web-llm@0.2.70/dist/index.min.js"></script>
   </head>
+
   <body>
     <div id="root"></div>
+
+    <!-- React App -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -1,175 +1,231 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
-function Chat() {
+export default function Chat({ engine, externalMessage }) {
   const [messages, setMessages] = useState([
-    { sender: "Paradox 🤖", text: "Bem-vindo ao Paradox, Tembra!", type: "bot", time: getTime() },
+    { role: "assistant", content: "Olá, eu sou o Paradox. Em que posso te acompanhar hoje?" }
   ]);
   const [input, setInput] = useState("");
+  const [typing, setTyping] = useState(false);
 
-  const handleSend = (e) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const chatRef = useRef(null);
+  const streamingRef = useRef(null);
 
-    const userMsg = { sender: "Você", text: input, type: "user", time: getTime() };
-    const botMsg = { sender: "Paradox 🤖", text: getRandomReply(), type: "bot", time: getTime() };
+  // Scroll automático
+  useEffect(() => {
+    chatRef.current?.scrollTo({
+      top: chatRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages, typing]);
 
-    // Mantém no máximo 6 mensagens visíveis
+  // Mensagens externas vindas do FaceReader
+  useEffect(() => {
+    if (externalMessage) {
+      sendToLLM(externalMessage);
+    }
+  }, [externalMessage]);
+
+  const addMessage = (msg) => {
+    setMessages((prev) => [...prev, msg]);
+  };
+
+  // STREAMING COM WEBLLM CDN
+  const sendToLLM = async (text) => {
+    if (!engine) return;
+
+    setTyping(true);
+
+    addMessage({ role: "user", content: text });
+
+    let assistantMsg = { role: "assistant", content: "" };
+    let assistantIndex = null;
+
+    // cria a bolha vazia
     setMessages((prev) => {
-      const newMsgs = [...prev, userMsg, botMsg];
-      return newMsgs.slice(-6);
+      assistantIndex = prev.length;
+      return [...prev, assistantMsg];
     });
 
+    try {
+      const stream = await engine.chat.completions.create({
+        stream: true,
+        messages: [{ role: "user", content: text }],
+      });
+
+      streamingRef.current = stream;
+
+      for await (const chunk of stream) {
+        const delta = chunk?.choices?.[0]?.delta?.content;
+        if (!delta) continue;
+
+        assistantMsg.content += delta;
+
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[assistantIndex] = { ...assistantMsg };
+          return updated;
+        });
+      }
+    } catch (err) {
+      console.error("Erro no streaming:", err);
+    } finally {
+      setTyping(false);
+      streamingRef.current = null;
+    }
+  };
+
+  const stopStreaming = () => {
+    try {
+      streamingRef.current?.close?.();
+    } catch {}
+    setTyping(false);
+  };
+
+  const handleSend = () => {
+    if (!input.trim()) return;
+    sendToLLM(input.trim());
     setInput("");
   };
 
-  return (
-    <div style={styles.container}>
-      {/* Header clean estilo iOS */}
-      <div style={styles.header}>
-        <span style={styles.chatName}>Paradox 🤖</span>
-        <span style={styles.chatStatus}>Online</span>
-      </div>
+  const handleKey = (e) => {
+    if (e.key === "Enter") handleSend();
+  };
 
-      {/* Área de chat (sem scroll infinito) */}
-      <div style={styles.chatBox}>
-        {messages.map((msg, idx) => (
+  return (
+    <div style={ui.container}>
+      <div style={ui.chat} ref={chatRef}>
+        {messages.map((msg, i) => (
           <div
-            key={idx}
-            style={{
-              ...styles.message,
-              ...(msg.type === "user" ? styles.userMsg : styles.botMsg),
-            }}
+            key={i}
+            style={msg.role === "user" ? ui.userBubble : ui.botBubble}
           >
-            <span>{msg.text}</span>
-            <span style={styles.time}>{msg.time}</span>
+            {msg.content}
           </div>
         ))}
+
+        {typing && (
+          <div style={ui.typingBubble}>
+            <span style={ui.dot}></span>
+            <span style={ui.dot}></span>
+            <span style={ui.dot}></span>
+          </div>
+        )}
       </div>
 
-      {/* Input fixo embaixo */}
-      <form style={styles.form} onSubmit={handleSend}>
+      <div style={ui.inputBar}>
         <input
-          type="text"
-          placeholder="Digite uma mensagem..."
+          style={ui.input}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          style={styles.input}
+          onKeyDown={handleKey}
+          placeholder="Digite aqui…"
         />
-        <button type="submit" style={styles.button}>
-          Enviar
-        </button>
-      </form>
+
+        {!typing ? (
+          <button style={ui.sendBtn} onClick={handleSend}>
+            Enviar
+          </button>
+        ) : (
+          <button style={ui.stopBtn} onClick={stopStreaming}>
+            ❚❚
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-// Hora simples
-const getTime = () => {
-  const now = new Date();
-  return now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-};
-
-// Respostas mock
-const getRandomReply = () => {
-  const replies = [
-    "oi Tembra 👋",
-    "🔥 A jaula abriu!",
-    "Você tá no controle 🚀",
-    "Essa conversa vai pro feed 😏",
-    "Paradox nunca dorme 🕶️",
-  ];
-  return replies[Math.floor(Math.random() * replies.length)];
-};
-
-const styles = {
+// ESTILOS
+const ui = {
   container: {
-    flex: 1,
+    height: "100%",
     display: "flex",
     flexDirection: "column",
-    height: "100vh",
-    background: "#000",
-    color: "white",
-    fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
   },
-  header: {
-    padding: "12px 16px",
-    borderBottom: "1px solid #222",
-    background: "#000",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    fontSize: "14px",
-    fontWeight: "500",
-  },
-  chatName: {
-    fontWeight: "bold",
-    fontSize: "16px",
-  },
-  chatStatus: {
-    fontSize: "12px",
-    color: "#22c55e",
-  },
-  chatBox: {
+
+  chat: {
     flex: 1,
-    padding: "15px",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "flex-end", // mensagens sempre embaixo
-    gap: "10px",
+    padding: 12,
+    overflowY: "auto",
+    background: "#f4f6f9",
   },
-  message: {
-    maxWidth: "70%",
+
+  userBubble: {
+    maxWidth: "80%",
+    alignSelf: "flex-end",
+    marginBottom: 10,
     padding: "10px 14px",
-    borderRadius: "18px",
-    fontSize: "15px",
-    lineHeight: 1.4,
-    boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
-  },
-  userMsg: {
-    alignSelf: "flex-end",
-    background: "#007aff",
+    background: "#1a73e8",
     color: "white",
-    borderBottomRightRadius: "5px",
+    borderRadius: "14px 14px 4px 14px",
+    fontSize: 15,
   },
-  botMsg: {
+
+  botBubble: {
+    maxWidth: "80%",
     alignSelf: "flex-start",
-    background: "#e5e5ea",
-    color: "black",
-    borderBottomLeftRadius: "5px",
+    marginBottom: 10,
+    padding: "10px 14px",
+    background: "#ffffff",
+    color: "#222",
+    borderRadius: "14px 14px 14px 4px",
+    border: "1px solid #e5e5e5",
+    fontSize: 15,
   },
-  time: {
-    fontSize: "11px",
-    marginTop: "4px",
-    opacity: 0.6,
-    alignSelf: "flex-end",
-  },
-  form: {
+
+  typingBubble: {
+    alignSelf: "flex-start",
     display: "flex",
-    padding: "10px",
-    borderTop: "1px solid #222",
-    background: "#111",
-    gap: "8px",
+    gap: 4,
+    padding: "8px 12px",
+    background: "#fff",
+    borderRadius: 12,
+    border: "1px solid #ddd",
+    width: 50,
+    justifyContent: "center",
+    marginBottom: 10,
   },
+
+  dot: {
+    width: 6,
+    height: 6,
+    background: "#999",
+    borderRadius: "50%",
+    animation: "blink 1.4s infinite both",
+  },
+
+  inputBar: {
+    padding: 10,
+    display: "flex",
+    gap: 8,
+    background: "#fff",
+    borderTop: "1px solid #ddd",
+  },
+
   input: {
     flex: 1,
-    padding: "10px 12px",
-    borderRadius: "18px",
-    border: "1px solid #333",
+    padding: 10,
+    border: "1px solid #ccc",
+    borderRadius: 10,
     outline: "none",
-    fontSize: "15px",
-    background: "#000",
-    color: "white",
+    fontSize: 15,
   },
-  button: {
-    padding: "10px 16px",
-    borderRadius: "18px",
+
+  sendBtn: {
+    padding: "10px 14px",
+    background: "#1a73e8",
+    color: "#fff",
     border: "none",
-    background: "#007aff",
-    color: "white",
-    fontWeight: "bold",
+    borderRadius: 10,
     cursor: "pointer",
-    fontSize: "14px",
+  },
+
+  stopBtn: {
+    padding: "10px 14px",
+    background: "#d32f2f",
+    color: "#fff",
+    border: "none",
+    borderRadius: 10,
+    cursor: "pointer",
   },
 };
-
-export default Chat;

@@ -1,183 +1,199 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
-function Personalization() {
-  const [username, setUsername] = useState("Tembra");
-  const [avatar, setAvatar] = useState(null);
-  const [theme, setTheme] = useState("dark");
-  const [accent, setAccent] = useState("#007aff"); // azul iOS default
+export default function Personalization({ engine, onProfileChange }) {
+  const [username, setUsername] = useState("");
+  const [age, setAge] = useState("");
+  const [city, setCity] = useState("");
+  const [bio, setBio] = useState("");
+  const [accent, setAccent] = useState("#1a73e8");
 
-  // Carregar configs
-  useEffect(() => {
-    const savedUser = localStorage.getItem("username");
-    const savedAvatar = localStorage.getItem("avatar");
-    const savedTheme = localStorage.getItem("theme");
-    const savedAccent = localStorage.getItem("accent");
+  const [generating, setGenerating] = useState(false);
 
-    if (savedUser) setUsername(savedUser);
-    if (savedAvatar) setAvatar(savedAvatar);
-    if (savedTheme) setTheme(savedTheme);
-    if (savedAccent) setAccent(savedAccent);
-  }, []);
+  // ------------------------------------------------------
+  // Gerar bio personalizada usando o modelo CDN WebLLM
+  // ------------------------------------------------------
+  const generateBio = async () => {
+    if (!engine) {
+      setBio("IA não está carregada.");
+      return;
+    }
 
-  // Salvar configs
-  useEffect(() => {
-    localStorage.setItem("username", username);
-    if (avatar) localStorage.setItem("avatar", avatar);
-    localStorage.setItem("theme", theme);
-    localStorage.setItem("accent", accent);
-  }, [username, avatar, theme, accent]);
+    setGenerating(true);
 
-  // Upload
-  const handleAvatarChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setAvatar(reader.result);
-      reader.readAsDataURL(file);
+    const prompt = `
+Crie uma bio curta, criativa e humana com base nos dados abaixo.
+Não faça parecer IA. Seja natural, leve e com personalidade sutil.
+
+Nome: ${username || "(não informado)"}
+Idade: ${age || "(não informado)"}
+Cidade: ${city || "(não informado)"}
+
+A bio deve ter no máximo 130 caracteres.
+    `;
+
+    try {
+      const result = await engine.chat.completions.create({
+        messages: [{ role: "user", content: prompt }],
+        stream: false,
+      });
+
+      const text =
+        result?.choices?.[0]?.message?.content || "Não consegui gerar uma bio.";
+      setBio(text);
+    } catch (err) {
+      console.error("Erro ao gerar bio:", err);
+      setBio("Erro ao gerar bio.");
+    } finally {
+      setGenerating(false);
     }
   };
 
+  // ------------------------------------------------------
+  // Salvar perfil
+  // ------------------------------------------------------
+  const saveProfile = () => {
+    const profile = { username, age, city, bio, accent };
+    onProfileChange?.(profile);
+    alert("Perfil salvo!");
+  };
+
   return (
-    <div
-      style={{
-        ...styles.container,
-        background: theme === "dark" ? "#000" : "#f2f2f7",
-        color: theme === "dark" ? "white" : "black",
-      }}
-    >
-      {/* Header */}
-      <div style={styles.header}>
-        <span style={styles.title}>Personalização</span>
-      </div>
+    <div style={ui.container}>
+      <h2 style={ui.header}>Personalização</h2>
 
-      {/* Avatar */}
-      <div style={styles.avatarBox}>
-        <img
-          src={avatar || "https://via.placeholder.com/120x120.png?text=Avatar"}
-          alt="Avatar"
-          style={{ ...styles.avatar, border: `3px solid ${accent}` }}
-        />
-        <label style={{ ...styles.uploadButton, background: accent }}>
-          Alterar Avatar
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleAvatarChange}
-            style={{ display: "none" }}
-          />
-        </label>
-      </div>
+      <label style={ui.label}>Nome</label>
+      <input
+        style={ui.input}
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        placeholder="Seu nome"
+      />
 
-      {/* Nome */}
-      <div style={styles.field}>
-        <label style={styles.label}>Nome de usuário</label>
-        <input
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          style={styles.input}
-        />
-      </div>
+      <label style={ui.label}>Idade</label>
+      <input
+        style={ui.input}
+        type="number"
+        value={age}
+        onChange={(e) => setAge(e.target.value)}
+        placeholder="Sua idade"
+      />
 
-      {/* Tema */}
-      <div style={styles.field}>
-        <label style={styles.label}>Tema</label>
-        <select
-          value={theme}
-          onChange={(e) => setTheme(e.target.value)}
-          style={styles.select}
-        >
-          <option value="dark">🌑 Escuro</option>
-          <option value="light">☀️ Claro</option>
-        </select>
-      </div>
+      <label style={ui.label}>Cidade</label>
+      <input
+        style={ui.input}
+        value={city}
+        onChange={(e) => setCity(e.target.value)}
+        placeholder="Sua cidade"
+      />
 
-      {/* Cor de destaque */}
-      <div style={styles.field}>
-        <label style={styles.label}>Cor de destaque</label>
-        <input
-          type="color"
-          value={accent}
-          onChange={(e) => setAccent(e.target.value)}
-          style={styles.colorPicker}
-        />
-      </div>
+      <label style={ui.label}>Cor do tema</label>
+      <input
+        type="color"
+        style={ui.colorPicker}
+        value={accent}
+        onChange={(e) => setAccent(e.target.value)}
+      />
+
+      <label style={ui.label}>Bio personalizada</label>
+      <textarea
+        style={ui.textarea}
+        value={bio}
+        onChange={(e) => setBio(e.target.value)}
+        placeholder="Sua bio..."
+      />
+
+      <button
+        style={ui.generateBtn}
+        onClick={generateBio}
+        disabled={generating}
+      >
+        {generating ? "Gerando..." : "Gerar Bio com IA"}
+      </button>
+
+      <button style={ui.saveBtn} onClick={saveProfile}>
+        Salvar Perfil
+      </button>
     </div>
   );
 }
 
-const styles = {
+const ui = {
   container: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    padding: "20px",
-    height: "100vh",
-    fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
-    gap: "20px",
+    padding: 20,
+    fontFamily: "Arial, sans-serif",
+    background: "#fff",
+    height: "100%",
+    overflowY: "auto",
   },
+
   header: {
-    width: "100%",
-    padding: "12px 0",
-    borderBottom: "1px solid #222",
     textAlign: "center",
-    marginBottom: "10px",
+    fontSize: 20,
+    fontWeight: 700,
+    marginBottom: 20,
   },
-  title: {
-    fontWeight: "bold",
-    fontSize: "16px",
+
+  label: {
+    marginTop: 12,
+    marginBottom: 4,
+    display: "block",
+    fontSize: 14,
+    fontWeight: 600,
+    color: "#444",
   },
-  avatarBox: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "10px",
-  },
-  avatar: {
-    width: "120px",
-    height: "120px",
-    borderRadius: "50%",
-    objectFit: "cover",
-  },
-  uploadButton: {
-    color: "white",
-    padding: "8px 15px",
-    borderRadius: "20px",
-    cursor: "pointer",
-    fontWeight: "500",
-    fontSize: "14px",
-    border: "none",
-  },
-  field: {
-    width: "100%",
-    maxWidth: "360px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "5px",
-  },
-  label: { fontWeight: "500", fontSize: "14px" },
+
   input: {
-    padding: "10px",
-    borderRadius: "10px",
+    width: "100%",
+    padding: 10,
+    borderRadius: 10,
     border: "1px solid #ccc",
-    fontSize: "14px",
     outline: "none",
+    fontSize: 15,
+    marginBottom: 6,
   },
-  select: {
-    padding: "10px",
-    borderRadius: "10px",
+
+  textarea: {
+    width: "100%",
+    height: 90,
+    padding: 10,
+    borderRadius: 10,
     border: "1px solid #ccc",
-    fontSize: "14px",
     outline: "none",
+    resize: "none",
   },
+
   colorPicker: {
-    width: "60px",
-    height: "40px",
+    width: "100%",
+    height: 45,
     border: "none",
-    borderRadius: "8px",
+    borderRadius: 10,
+    outline: "none",
+    marginBottom: 8,
+  },
+
+  generateBtn: {
+    marginTop: 12,
+    width: "100%",
+    padding: "10px",
+    background: "#1a73e8",
+    color: "#fff",
+    borderRadius: 10,
+    border: "none",
     cursor: "pointer",
+    fontWeight: 600,
+    fontSize: 15,
+  },
+
+  saveBtn: {
+    marginTop: 12,
+    width: "100%",
+    padding: "10px",
+    background: "#34a853",
+    color: "#fff",
+    borderRadius: 10,
+    border: "none",
+    cursor: "pointer",
+    fontWeight: 600,
+    fontSize: 15,
   },
 };
-
-export default Personalization;
