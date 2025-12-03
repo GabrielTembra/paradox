@@ -1,206 +1,190 @@
-import { useState, useEffect, useRef } from "react";
-
+import { useState, useEffect } from "react";
 import Chat from "./components/Chat";
 import FaceReader from "./components/FaceReader";
 import Personalization from "./components/Personalization";
+import * as webllm from "@mlc-ai/web-llm";
 
 export default function App() {
-  const [active, setActive] = useState("chat");
-  const [externalMessage, setExternalMessage] = useState(null);
   const [engine, setEngine] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState("Inicializando…");
+  const [active, setActive] = useState("chat");
+  const [externalMessage, setExternalMessage] = useState("");
 
-  const mounted = useRef(true);
-
-  const log = (...args) => console.log("[Paradox]", ...args);
-
-  // ------------------------------------------------------
-  // 1 — Carregar WebLLM via CDN (createWebLLMEngine)
-  // ------------------------------------------------------
   useEffect(() => {
-    async function loadModel() {
+    async function load() {
       try {
-        setStatus("Carregando IA via CDN…");
-        log("window.webllm:", window.webllm);
+        const handler = new webllm.WebWorkerMLCEngineHandler();
 
-        if (!window.webllm || !window.webllm.createWebLLMEngine) {
-          console.error("❌ WebLLM não carregou corretamente (CDN)");
-          setStatus("Erro: WebLLM não carregou");
-          setLoading(false);
-          return;
-        }
+        const ENGINE_CONFIG = {
+          model_list: [
+            {
+              model_url:
+                "https://huggingface.co/mlc-ai/RedPajama-INCITE-Chat-3B-v1-q4f32_1/resolve/main/",
+              local_id: "RedPajama-INCITE-Chat-3B-v1-q4f32_1",
+            },
+          ],
+        };
 
-        log("Criando engine…");
-
-        const eng = await window.webllm.createWebLLMEngine({
-          model: "Phi-3-mini-4k-instruct-q4f16_1",
-        });
-
-        if (!mounted.current) return;
-
-        log("Engine criada com sucesso:", eng);
-
+        const eng = await webllm.CreateMLCEngine(handler, ENGINE_CONFIG);
         setEngine(eng);
-        setStatus("IA pronta!");
-      } catch (err) {
-        console.error("[Paradox] Erro ao carregar modelo:", err);
-        setStatus("Erro ao carregar IA");
-      } finally {
-        if (mounted.current) setLoading(false);
+      } catch (e) {
+        console.error("Erro ao inicializar WebLLM:", e);
       }
     }
 
-    loadModel();
-
-    return () => {
-      mounted.current = false;
-    };
+    load();
   }, []);
 
-  // ------------------------------------------------------
-  // 2 — Análise Facial → Mandar narrativa para o Chat
-  // ------------------------------------------------------
-  const handleFaceAnalysis = (text) => {
-    setExternalMessage(text);
-    setActive("chat");
-  };
-
-  // ------------------------------------------------------
-  // 3 — Renderizar a tela ativa
-  // ------------------------------------------------------
-  const renderScreen = () => {
-    if (loading || !engine)
-      return (
-        <div style={{ padding: 40, textAlign: "center", opacity: 0.7 }}>
-          {status}
-        </div>
-      );
-
-    switch (active) {
-      case "chat":
-        return <Chat engine={engine} externalMessage={externalMessage} />;
-
-      case "face":
-        return (
-          <FaceReader
-            engine={engine}
-            onAnalysisReady={handleFaceAnalysis}
-          />
-        );
-
-      case "personalization":
-        return <Personalization engine={engine} />;
-
-      default:
-        return <Chat engine={engine} externalMessage={externalMessage} />;
-    }
-  };
-
-  // ------------------------------------------------------
-  // UI
-  // ------------------------------------------------------
   return (
-    <div style={ui.app}>
-      {/* HEADER */}
-      <div style={ui.header}>
-        <span style={ui.title}>Paradox</span>
-      </div>
+    <div style={ui.appWrapper}>
+      <div style={ui.backgroundGradient} />
 
-      {/* MAIN */}
-      <div style={ui.screen}>{renderScreen()}</div>
+      <div style={ui.cardWrapper}>
+        <div style={ui.card}>
+          <div style={ui.header}>
+            <div style={ui.headerLeft}>
+              <div style={ui.avatar}>P</div>
+              <div style={ui.headerInfo}>
+                <div style={ui.name}>Paradox</div>
+                <div style={ui.status}>
+                  {engine ? "IA local pronta" : "Inicializando IA local..."}
+                </div>
+              </div>
+            </div>
+            <div style={ui.dot} />
+          </div>
 
-      {/* DOCK */}
-      <div style={ui.dock}>
-        <DockButton
-          label="Chat"
-          active={active === "chat"}
-          onClick={() => setActive("chat")}
-        />
-        <DockButton
-          label="Face"
-          active={active === "face"}
-          onClick={() => setActive("face")}
-        />
-        <DockButton
-          label="Perfil"
-          active={active === "personalization"}
-          onClick={() => setActive("personalization")}
-        />
+          <div style={ui.tabs}>
+            <button
+              style={active === "chat" ? ui.tabActive : ui.tab}
+              onClick={() => setActive("chat")}
+            >
+              Chat
+            </button>
+
+            <button
+              style={active === "face" ? ui.tabActive : ui.tab}
+              onClick={() => setActive("face")}
+            >
+              Face
+            </button>
+
+            <button
+              style={active === "profile" ? ui.tabActive : ui.tab}
+              onClick={() => setActive("profile")}
+            >
+              Perfil
+            </button>
+          </div>
+
+          <div style={ui.tabUnderline} />
+
+          <div style={ui.content}>
+            {active === "chat" && (
+              <Chat engine={engine} externalMessage={externalMessage} />
+            )}
+            {active === "face" && (
+              <FaceReader
+                engine={engine}
+                onAnalysisReady={(msg) => setExternalMessage(msg)}
+              />
+            )}
+            {active === "profile" && (
+              <Personalization engine={engine} onProfileChange={() => {}} />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// ------------------------------------------------------
-// Botão do Dock
-// ------------------------------------------------------
-function DockButton({ label, active, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        ...ui.dockButton,
-        color: active ? "#1a73e8" : "#7a7a7a",
-        fontWeight: active ? 700 : 500,
-        borderBottom: active ? "3px solid #1a73e8" : "3px solid transparent",
-        transform: active ? "scale(1.08)" : "scale(1)",
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-// ------------------------------------------------------
-// STYLE
-// ------------------------------------------------------
+//
+// ESTILOS — IGUAL AO SEU
+//
 const ui = {
-  app: {
-    height: "100vh",
+  appWrapper: {
+    position: "relative",
     width: "100vw",
-    background: "#ffffff",
-    fontFamily: "Arial, sans-serif",
-    display: "flex",
-    flexDirection: "column",
-    color: "#222",
+    height: "100vh",
     overflow: "hidden",
   },
-
-  header: {
-    padding: "14px 20px",
-    background: "#ffffff",
-    borderBottom: "1px solid #e5e5e5",
-    textAlign: "center",
-    fontWeight: 700,
-    fontSize: 18,
-    color: "#1a1a1a",
+  backgroundGradient: {
+    position: "absolute",
+    inset: 0,
+    background:
+      "linear-gradient(135deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5)",
+    backgroundSize: "200% 200%",
+    animation: "moveGradient 12s ease infinite",
   },
-
-  title: { fontSize: 20, fontWeight: 700 },
-
-  screen: {
-    flex: 1,
-    overflowY: "auto",
-    background: "#fafafa",
+  cardWrapper: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: "100%",
+    maxWidth: 420,
+    padding: 16,
   },
-
-  dock: {
+  card: {
+    width: "100%",
+    background: "rgba(10,12,27,0.75)",
+    backdropFilter: "blur(18px)",
+    borderRadius: 22,
+    padding: 16,
+    boxShadow: "0 12px 40px rgba(0,0,0,0.4)",
+    border: "1px solid rgba(255,255,255,0.08)",
     display: "flex",
-    justifyContent: "space-around",
-    background: "rgba(255,255,255,0.95)",
-    backdropFilter: "blur(14px)",
-    borderTop: "1px solid #e5e5e5",
-    padding: "8px 0 10px",
+    flexDirection: "column",
+    gap: 12,
   },
-
-  dockButton: {
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  headerLeft: { display: "flex", alignItems: "center", gap: 10 },
+  avatar: {
+    width: 34,
+    height: 34,
+    borderRadius: "50%",
+    background: "#f97316",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 16,
+    fontWeight: 700,
+    color: "#111",
+  },
+  headerInfo: { display: "flex", flexDirection: "column" },
+  name: { fontSize: 15, fontWeight: 700, color: "#fff" },
+  status: { fontSize: 11, color: "rgba(255,255,255,0.7)" },
+  dot: { width: 10, height: 10, borderRadius: "50%", background: "rgba(255,255,255,0.5)" },
+  tabs: { display: "flex", gap: 8 },
+  tab: {
     flex: 1,
-    background: "transparent",
+    padding: "6px 0",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.1)",
     border: "none",
-    padding: "10px 0",
-    fontSize: 15,
-    cursor: "pointer",
-    transition: "0.25s ease",
+    color: "#ddd",
+    fontSize: 13,
   },
+  tabActive: {
+    flex: 1,
+    padding: "6px 0",
+    borderRadius: 999,
+    background: "linear-gradient(90deg, #ff0080, #ff6a00, #ffd100)",
+    border: "none",
+    color: "#fff",
+    fontWeight: 600,
+    fontSize: 13,
+  },
+  tabUnderline: {
+    width: "100%",
+    height: 3,
+    background: "linear-gradient(90deg, #ff0080, #ff6a00, #ffd100)",
+    borderRadius: 999,
+    marginTop: -4,
+  },
+  content: { height: "60vh", overflowY: "auto", paddingRight: 6 },
 };

@@ -1,14 +1,21 @@
+// src/components/Chat.jsx
 import { useState, useEffect, useRef } from "react";
 
-export default function Chat({ engine, externalMessage }) {
+export default function Chat({ engine, externalMessage, profile, loadingEngine }) {
   const [messages, setMessages] = useState([
-    { role: "assistant", content: "Olá, eu sou o Paradox. Em que posso te acompanhar hoje?" }
+    {
+      id: "intro",
+      role: "assistant",
+      content: "Olá, eu sou o Paradox. Em que posso te acompanhar hoje?",
+    },
   ]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
 
   const chatRef = useRef(null);
   const streamingRef = useRef(null);
+
+  const accentColor = profile?.accent || "#f97316"; // laranja/rosa vibe IG
 
   // Scroll automático
   useEffect(() => {
@@ -18,38 +25,107 @@ export default function Chat({ engine, externalMessage }) {
     });
   }, [messages, typing]);
 
-  // Mensagens externas vindas do FaceReader
+  // Mensagens externas vindas do FaceReader (não criam bolha de usuário)
   useEffect(() => {
-    if (externalMessage) {
-      sendToLLM(externalMessage);
-    }
+    if (!externalMessage) return;
+    sendToLLM(externalMessage, { fromExternal: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalMessage]);
 
   const addMessage = (msg) => {
     setMessages((prev) => [...prev, msg]);
   };
 
-  // STREAMING COM WEBLLM CDN
-  const sendToLLM = async (text) => {
-    if (!engine) return;
+  const buildHistory = () =>
+    messages.map(({ role, content }) => ({ role, content }));
+
+  const buildSystemPrompt = () => {
+    const name = profile?.username || "usuário";
+    const age = profile?.age ? `${profile.age} anos` : "idade não informada";
+    const city = profile?.city || "cidade não informada";
+    const bio = profile?.bio || "";
+
+    return {
+      role: "system",
+      content: `
+Você é o Paradox, um assistente introspectivo, direto e empático, que fala de um jeito humano.
+Dados do usuário:
+- Nome: ${name}
+- Idade: ${age}
+- Cidade: ${city}
+- Bio: ${bio}
+
+Responda sempre em até 3 parágrafos, com linguagem natural.
+Não mencione que recebeu esses dados de um sistema ou perfil.
+      `.trim(),
+    };
+  };
+
+  // -----------------------------------
+  // Envio pro LLM (com streaming)
+  // -----------------------------------
+  const sendToLLM = async (text, options = {}) => {
+    const isExternal = options.fromExternal === true;
+
+    if (!engine) {
+      console.warn("Engine ainda não carregada.");
+      if (!isExternal) {
+        addMessage({
+          id: Date.now() + "-info",
+          role: "assistant",
+          content: loadingEngine
+            ? "Tô ligando meu cérebro local aqui… me chama de novo em alguns segundos."
+            : "Ainda não consegui carregar a IA local.",
+        });
+      }
+      return;
+    }
+
+    if (typing) return; // não deixa duas respostas ao mesmo tempo
 
     setTyping(true);
 
-    addMessage({ role: "user", content: text });
+    const history = buildHistory();
+    const systemMsg = buildSystemPrompt();
+    let llmMessages;
 
-    let assistantMsg = { role: "assistant", content: "" };
-    let assistantIndex = null;
+    if (isExternal) {
+      const emotionalTurn = {
+        role: "user",
+        content: `
+Sinal emocional detectado por um analisador de expressões faciais:
+"${text}"
 
-    // cria a bolha vazia
-    setMessages((prev) => {
-      assistantIndex = prev.length;
-      return [...prev, assistantMsg];
-    });
+Faça um comentário curto (1–2 frases), acolhedor e natural,
+sem citar câmera ou análise facial. Só reage à energia.
+      `.trim(),
+      };
+
+      llmMessages = [systemMsg, ...history, emotionalTurn];
+    } else {
+      const userMsg = {
+        id: Date.now() + "-user",
+        role: "user",
+        content: text,
+      };
+      addMessage(userMsg);
+
+      llmMessages = [systemMsg, ...history, { role: "user", content: text }];
+    }
+
+    const assistantId = Date.now() + "-assistant";
+    const assistantMsg = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+    };
+
+    setMessages((prev) => [...prev, assistantMsg]);
 
     try {
       const stream = await engine.chat.completions.create({
         stream: true,
-        messages: [{ role: "user", content: text }],
+        messages: llmMessages,
       });
 
       streamingRef.current = stream;
@@ -58,16 +134,26 @@ export default function Chat({ engine, externalMessage }) {
         const delta = chunk?.choices?.[0]?.delta?.content;
         if (!delta) continue;
 
-        assistantMsg.content += delta;
-
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[assistantIndex] = { ...assistantMsg };
-          return updated;
-        });
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, content: m.content + delta } : m
+          )
+        );
       }
     } catch (err) {
       console.error("Erro no streaming:", err);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                content:
+                  m.content ||
+                  "Buguei um pouco aqui. Tenta mandar de novo, por favor?",
+              }
+            : m
+        )
+      );
     } finally {
       setTyping(false);
       streamingRef.current = null;
@@ -77,6 +163,7 @@ export default function Chat({ engine, externalMessage }) {
   const stopStreaming = () => {
     try {
       streamingRef.current?.close?.();
+      streamingRef.current?.cancel?.();
     } catch {}
     setTyping(false);
   };
@@ -88,42 +175,63 @@ export default function Chat({ engine, externalMessage }) {
   };
 
   const handleKey = (e) => {
-    if (e.key === "Enter") handleSend();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   return (
     <div style={ui.container}>
+      {/* faixa superior tipo “story bar” */}
+      <div style={ui.topStrip}>
+        <div style={ui.storyDot(accentColor)} />
+        <div style={ui.storyDot("rgba(249,115,22,0.7)")} />
+        <div style={ui.storyDot("rgba(236,72,153,0.7)")} />
+      </div>
+
+      {/* área de mensagens */}
       <div style={ui.chat} ref={chatRef}>
-        {messages.map((msg, i) => (
+        {messages.map((msg) => (
           <div
-            key={i}
-            style={msg.role === "user" ? ui.userBubble : ui.botBubble}
+            key={msg.id}
+            style={
+              msg.role === "user"
+                ? { ...ui.userBubble, background: accentColor }
+                : ui.botBubble
+            }
           >
             {msg.content}
           </div>
         ))}
 
         {typing && (
-          <div style={ui.typingBubble}>
-            <span style={ui.dot}></span>
-            <span style={ui.dot}></span>
-            <span style={ui.dot}></span>
+          <div style={ui.typingRow}>
+            <div style={ui.botBubbleTyping}>
+              <span style={ui.dot}></span>
+              <span style={ui.dot}></span>
+              <span style={ui.dot}></span>
+            </div>
           </div>
         )}
       </div>
 
+      {/* barra de input fixa embaixo */}
       <div style={ui.inputBar}>
-        <input
-          style={ui.input}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKey}
-          placeholder="Digite aqui…"
-        />
+        <div style={ui.inputWrapper}>
+          <textarea
+            style={ui.input}
+            rows={1}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKey}
+            placeholder="Manda ver…"
+          />
+        </div>
 
         {!typing ? (
           <button style={ui.sendBtn} onClick={handleSend}>
-            Enviar
+            <span style={{ fontSize: 16 }}>➤</span>
           </button>
         ) : (
           <button style={ui.stopBtn} onClick={stopStreaming}>
@@ -135,97 +243,141 @@ export default function Chat({ engine, externalMessage }) {
   );
 }
 
-// ESTILOS
 const ui = {
   container: {
-    height: "100%",
+    flex: 1,
     display: "flex",
     flexDirection: "column",
+    gap: 6,
+    height: "100%",
+    minHeight: 0, // importante pra flex dentro do appShell
   },
+
+  topStrip: {
+    display: "flex",
+    gap: 6,
+    padding: "2px 2px 0 2px",
+  },
+
+  storyDot: (color) => ({
+    flex: 1,
+    height: 4,
+    borderRadius: 999,
+    background: color,
+  }),
 
   chat: {
     flex: 1,
-    padding: 12,
     overflowY: "auto",
-    background: "#f4f6f9",
+    padding: "4px 4px 8px 4px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
   },
 
   userBubble: {
     maxWidth: "80%",
     alignSelf: "flex-end",
-    marginBottom: 10,
-    padding: "10px 14px",
-    background: "#1a73e8",
-    color: "white",
-    borderRadius: "14px 14px 4px 14px",
-    fontSize: 15,
+    padding: "8px 12px",
+    borderRadius: 18,
+    borderBottomRightRadius: 4,
+    color: "#fdf2f8",
+    fontSize: 14,
+    lineHeight: 1.35,
+    whiteSpace: "pre-wrap",
+    boxShadow: "0 4px 10px rgba(0,0,0,0.25)",
   },
 
   botBubble: {
-    maxWidth: "80%",
+    maxWidth: "84%",
     alignSelf: "flex-start",
-    marginBottom: 10,
-    padding: "10px 14px",
-    background: "#ffffff",
-    color: "#222",
-    borderRadius: "14px 14px 14px 4px",
-    border: "1px solid #e5e5e5",
-    fontSize: 15,
+    padding: "8px 12px",
+    borderRadius: 18,
+    borderBottomLeftRadius: 4,
+    background: "rgba(15,23,42,0.85)",
+    color: "#e5e7eb",
+    fontSize: 14,
+    lineHeight: 1.4,
+    whiteSpace: "pre-wrap",
+    border: "1px solid rgba(148,163,184,0.35)",
   },
 
-  typingBubble: {
-    alignSelf: "flex-start",
+  typingRow: {
+    display: "flex",
+    justifyContent: "flex-start",
+  },
+
+  botBubbleTyping: {
     display: "flex",
     gap: 4,
-    padding: "8px 12px",
-    background: "#fff",
-    borderRadius: 12,
-    border: "1px solid #ddd",
-    width: 50,
-    justifyContent: "center",
-    marginBottom: 10,
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: "rgba(15,23,42,0.9)",
+    border: "1px solid rgba(148,163,184,0.4)",
   },
 
   dot: {
     width: 6,
     height: 6,
-    background: "#999",
     borderRadius: "50%",
-    animation: "blink 1.4s infinite both",
+    background: "#9ca3af",
+    animation: "pulse 1.4s infinite ease-in-out",
   },
 
   inputBar: {
-    padding: 10,
     display: "flex",
-    gap: 8,
-    background: "#fff",
-    borderTop: "1px solid #ddd",
+    alignItems: "center",
+    gap: 6,
+    paddingTop: 4,
+  },
+
+  inputWrapper: {
+    flex: 1,
+    background: "rgba(15,23,42,0.9)",
+    borderRadius: 999,
+    padding: "6px 10px",
+    border: "1px solid rgba(148,163,184,0.6)",
   },
 
   input: {
-    flex: 1,
-    padding: 10,
-    border: "1px solid #ccc",
-    borderRadius: 10,
+    width: "100%",
+    border: "none",
     outline: "none",
-    fontSize: 15,
+    resize: "none",
+    background: "transparent",
+    color: "#e5e7eb",
+    fontSize: 14,
+    lineHeight: 1.4,
   },
 
   sendBtn: {
-    padding: "10px 14px",
-    background: "#1a73e8",
-    color: "#fff",
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
     border: "none",
-    borderRadius: 10,
+    background:
+      "linear-gradient(135deg, #f97316 0%, #ec4899 45%, #6366f1 100%)",
+    color: "#f9fafb",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     cursor: "pointer",
+    boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
+    flexShrink: 0,
   },
 
   stopBtn: {
-    padding: "10px 14px",
-    background: "#d32f2f",
-    color: "#fff",
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
     border: "none",
-    borderRadius: 10,
+    background: "#ef4444",
+    color: "#f9fafb",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     cursor: "pointer",
+    boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
+    flexShrink: 0,
   },
 };

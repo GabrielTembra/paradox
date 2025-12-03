@@ -1,3 +1,4 @@
+// src/components/Personalization.jsx
 import { useState } from "react";
 
 export default function Personalization({ engine, onProfileChange }) {
@@ -5,16 +6,16 @@ export default function Personalization({ engine, onProfileChange }) {
   const [age, setAge] = useState("");
   const [city, setCity] = useState("");
   const [bio, setBio] = useState("");
-  const [accent, setAccent] = useState("#1a73e8");
+  const [accent, setAccent] = useState("#f97316");
 
   const [generating, setGenerating] = useState(false);
 
-  // ------------------------------------------------------
-  // Gerar bio personalizada usando o modelo CDN WebLLM
-  // ------------------------------------------------------
+  // ------------------------------------
+  // Gerar bio com phi-3-mini (WebLLM)
+  // ------------------------------------
   const generateBio = async () => {
     if (!engine) {
-      setBio("IA não está carregada.");
+      setBio("IA local ainda não carregou.");
       return;
     }
 
@@ -22,14 +23,17 @@ export default function Personalization({ engine, onProfileChange }) {
 
     const prompt = `
 Crie uma bio curta, criativa e humana com base nos dados abaixo.
-Não faça parecer IA. Seja natural, leve e com personalidade sutil.
+Não faça parecer IA. Tom leve, pessoal e autêntico.
 
 Nome: ${username || "(não informado)"}
 Idade: ${age || "(não informado)"}
 Cidade: ${city || "(não informado)"}
 
-A bio deve ter no máximo 130 caracteres.
-    `;
+Regras:
+- Máximo 130 caracteres.
+- Escreva em primeira pessoa.
+- Português brasileiro.
+`.trim();
 
     try {
       const result = await engine.chat.completions.create({
@@ -39,7 +43,7 @@ A bio deve ter no máximo 130 caracteres.
 
       const text =
         result?.choices?.[0]?.message?.content || "Não consegui gerar uma bio.";
-      setBio(text);
+      setBio(text.trim());
     } catch (err) {
       console.error("Erro ao gerar bio:", err);
       setBio("Erro ao gerar bio.");
@@ -48,152 +52,235 @@ A bio deve ter no máximo 130 caracteres.
     }
   };
 
-  // ------------------------------------------------------
-  // Salvar perfil
-  // ------------------------------------------------------
   const saveProfile = () => {
     const profile = { username, age, city, bio, accent };
     onProfileChange?.(profile);
-    alert("Perfil salvo!");
+    alert("Perfil salvo no Paradox!");
   };
 
   return (
     <div style={ui.container}>
-      <h2 style={ui.header}>Personalização</h2>
+      <div style={ui.headerRow}>
+        <div>
+          <div style={ui.title}>Perfil do Paradox</div>
+          <div style={ui.subtitle}>
+            Ajusta seu “@” interno pra conversa ficar mais sua.
+          </div>
+        </div>
+      </div>
 
-      <label style={ui.label}>Nome</label>
-      <input
-        style={ui.input}
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        placeholder="Seu nome"
-      />
+      <div style={ui.form}>
+        <div style={ui.fieldGroup}>
+          <label style={ui.label}>Nome</label>
+          <input
+            style={ui.input}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Como você quer ser chamado?"
+          />
+        </div>
 
-      <label style={ui.label}>Idade</label>
-      <input
-        style={ui.input}
-        type="number"
-        value={age}
-        onChange={(e) => setAge(e.target.value)}
-        placeholder="Sua idade"
-      />
+        <div style={ui.inlineRow}>
+          <div style={{ ...ui.fieldGroup, flex: 1 }}>
+            <label style={ui.label}>Idade</label>
+            <input
+              style={ui.input}
+              type="number"
+              min={0}
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+              placeholder="21"
+            />
+          </div>
 
-      <label style={ui.label}>Cidade</label>
-      <input
-        style={ui.input}
-        value={city}
-        onChange={(e) => setCity(e.target.value)}
-        placeholder="Sua cidade"
-      />
+          <div style={{ ...ui.fieldGroup, flex: 2 }}>
+            <label style={ui.label}>Cidade</label>
+            <input
+              style={ui.input}
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="São Paulo, SP"
+            />
+          </div>
+        </div>
 
-      <label style={ui.label}>Cor do tema</label>
-      <input
-        type="color"
-        style={ui.colorPicker}
-        value={accent}
-        onChange={(e) => setAccent(e.target.value)}
-      />
+        <div style={ui.fieldGroup}>
+          <label style={ui.label}>Cor do tema</label>
+          <div style={ui.colorRow}>
+            <input
+              type="color"
+              style={ui.colorPicker}
+              value={accent}
+              onChange={(e) => setAccent(e.target.value)}
+            />
+            <div style={ui.colorPreview(accent)}>
+              <span style={ui.colorPreviewText}>preview da bolha</span>
+            </div>
+          </div>
+        </div>
 
-      <label style={ui.label}>Bio personalizada</label>
-      <textarea
-        style={ui.textarea}
-        value={bio}
-        onChange={(e) => setBio(e.target.value)}
-        placeholder="Sua bio..."
-      />
+        <div style={ui.fieldGroup}>
+          <label style={ui.label}>Bio</label>
+          <textarea
+            style={ui.textarea}
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            placeholder="Uma frase que te resuma sem parecer IA…"
+          />
+        </div>
 
-      <button
-        style={ui.generateBtn}
-        onClick={generateBio}
-        disabled={generating}
-      >
-        {generating ? "Gerando..." : "Gerar Bio com IA"}
-      </button>
+        <button
+          style={{
+            ...ui.primaryBtn,
+            opacity: generating ? 0.7 : 1,
+            cursor: generating ? "default" : "pointer",
+          }}
+          disabled={generating}
+          onClick={generateBio}
+        >
+          {generating ? "Gerando bio…" : "Gerar bio com IA"}
+        </button>
 
-      <button style={ui.saveBtn} onClick={saveProfile}>
-        Salvar Perfil
-      </button>
+        <button style={ui.secondaryBtn} onClick={saveProfile}>
+          Salvar perfil
+        </button>
+      </div>
     </div>
   );
 }
 
 const ui = {
   container: {
-    padding: 20,
-    fontFamily: "Arial, sans-serif",
-    background: "#fff",
-    height: "100%",
-    overflowY: "auto",
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    color: "#e5e7eb",
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI'",
   },
 
-  header: {
-    textAlign: "center",
-    fontSize: 20,
-    fontWeight: 700,
-    marginBottom: 20,
-  },
-
-  label: {
-    marginTop: 12,
-    marginBottom: 4,
-    display: "block",
-    fontSize: 14,
-    fontWeight: 600,
-    color: "#444",
-  },
-
-  input: {
-    width: "100%",
-    padding: 10,
-    borderRadius: 10,
-    border: "1px solid #ccc",
-    outline: "none",
-    fontSize: 15,
-    marginBottom: 6,
-  },
-
-  textarea: {
-    width: "100%",
-    height: 90,
-    padding: 10,
-    borderRadius: 10,
-    border: "1px solid #ccc",
-    outline: "none",
-    resize: "none",
-  },
-
-  colorPicker: {
-    width: "100%",
-    height: 45,
-    border: "none",
-    borderRadius: 10,
-    outline: "none",
+  headerRow: {
+    paddingBottom: 6,
+    borderBottom: "1px solid rgba(148,163,184,0.4)",
     marginBottom: 8,
   },
 
-  generateBtn: {
-    marginTop: 12,
-    width: "100%",
-    padding: "10px",
-    background: "#1a73e8",
-    color: "#fff",
-    borderRadius: 10,
-    border: "none",
-    cursor: "pointer",
-    fontWeight: 600,
-    fontSize: 15,
+  title: {
+    fontSize: 16,
+    fontWeight: 700,
   },
 
-  saveBtn: {
-    marginTop: 12,
-    width: "100%",
-    padding: "10px",
-    background: "#34a853",
-    color: "#fff",
-    borderRadius: 10,
+  subtitle: {
+    fontSize: 11,
+    color: "#9ca3af",
+    marginTop: 2,
+  },
+
+  form: {
+    flex: 1,
+    marginTop: 4,
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    overflowY: "auto",
+    paddingRight: 2,
+  },
+
+  fieldGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+
+  inlineRow: {
+    display: "flex",
+    gap: 8,
+  },
+
+  label: {
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    color: "#9ca3af",
+  },
+
+  input: {
+    padding: "8px 10px",
+    borderRadius: 12,
+    border: "1px solid rgba(148,163,184,0.7)",
+    background: "rgba(15,23,42,0.9)",
+    color: "#e5e7eb",
+    fontSize: 13,
+    outline: "none",
+  },
+
+  textarea: {
+    padding: "8px 10px",
+    borderRadius: 12,
+    border: "1px solid rgba(148,163,184,0.7)",
+    background: "rgba(15,23,42,0.9)",
+    color: "#e5e7eb",
+    fontSize: 13,
+    outline: "none",
+    minHeight: 70,
+    resize: "none",
+  },
+
+  colorRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  colorPicker: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
     border: "none",
+    padding: 0,
+    background: "transparent",
     cursor: "pointer",
+  },
+
+  colorPreview: (accent) => ({
+    flex: 1,
+    borderRadius: 999,
+    padding: "6px 10px",
+    background:
+      "linear-gradient(135deg, rgba(15,23,42,0.95), rgba(15,23,42,0.9))",
+    border: "1px solid rgba(148,163,184,0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    boxSizing: "border-box",
+  }),
+
+  colorPreviewText: {
+    fontSize: 11,
+    color: "#9ca3af",
+  },
+
+  primaryBtn: {
+    marginTop: 4,
+    width: "100%",
+    padding: "9px 12px",
+    borderRadius: 999,
+    border: "none",
+    background:
+      "linear-gradient(135deg, #f97316 0%, #ec4899 45%, #6366f1 100%)",
+    color: "#f9fafb",
+    fontSize: 13,
     fontWeight: 600,
-    fontSize: 15,
+  },
+
+  secondaryBtn: {
+    width: "100%",
+    padding: "9px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(148,163,184,0.9)",
+    background: "transparent",
+    color: "#e5e7eb",
+    fontSize: 13,
+    fontWeight: 500,
   },
 };
