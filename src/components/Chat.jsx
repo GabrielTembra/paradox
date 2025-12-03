@@ -1,7 +1,7 @@
 // src/components/Chat.jsx
 import { useState, useEffect, useRef } from "react";
 
-export default function Chat({ engine, externalMessage, profile, loadingEngine }) {
+export default function Chat({ engine, externalMessage, profile }) {
   const [messages, setMessages] = useState([
     {
       id: "intro",
@@ -9,13 +9,14 @@ export default function Chat({ engine, externalMessage, profile, loadingEngine }
       content: "Olá, eu sou o Paradox. Em que posso te acompanhar hoje?",
     },
   ]);
+
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
 
   const chatRef = useRef(null);
   const streamingRef = useRef(null);
 
-  const accentColor = profile?.accent || "#f97316"; // laranja/rosa vibe IG
+  const accentColor = profile?.accent || "#f97316";
 
   // Scroll automático
   useEffect(() => {
@@ -25,83 +26,82 @@ export default function Chat({ engine, externalMessage, profile, loadingEngine }
     });
   }, [messages, typing]);
 
-  // Mensagens externas vindas do FaceReader (não criam bolha de usuário)
+  // Entrada externa do FaceReader
   useEffect(() => {
     if (!externalMessage) return;
-    sendToLLM(externalMessage, { fromExternal: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    sendToLLM(externalMessage, { external: true });
   }, [externalMessage]);
 
+  // ---------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------
   const addMessage = (msg) => {
     setMessages((prev) => [...prev, msg]);
   };
 
   const buildHistory = () =>
-    messages.map(({ role, content }) => ({ role, content }));
+    messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
   const buildSystemPrompt = () => {
     const name = profile?.username || "usuário";
-    const age = profile?.age ? `${profile.age} anos` : "idade não informada";
-    const city = profile?.city || "cidade não informada";
+    const age = profile?.age || "não informado";
+    const city = profile?.city || "não informado";
     const bio = profile?.bio || "";
 
     return {
       role: "system",
       content: `
-Você é o Paradox, um assistente introspectivo, direto e empático, que fala de um jeito humano.
+Você é o Paradox.
+Estilo: direto, humano, introspectivo, cuidadoso.
 Dados do usuário:
 - Nome: ${name}
 - Idade: ${age}
 - Cidade: ${city}
 - Bio: ${bio}
 
-Responda sempre em até 3 parágrafos, com linguagem natural.
-Não mencione que recebeu esses dados de um sistema ou perfil.
-      `.trim(),
+Regras:
+- Responda em até 3 parágrafos.
+- Nunca fale que recebeu dados pré-programados.
+- Linguagem natural, não robótica.
+`.trim(),
     };
   };
 
-  // -----------------------------------
-  // Envio pro LLM (com streaming)
-  // -----------------------------------
-  const sendToLLM = async (text, options = {}) => {
-    const isExternal = options.fromExternal === true;
-
+  // ---------------------------------------------------------
+  // ENVIO PARA O LLM — STREAMING
+  // ---------------------------------------------------------
+  const sendToLLM = async (text, { external = false } = {}) => {
     if (!engine) {
-      console.warn("Engine ainda não carregada.");
-      if (!isExternal) {
-        addMessage({
-          id: Date.now() + "-info",
-          role: "assistant",
-          content: loadingEngine
-            ? "Tô ligando meu cérebro local aqui… me chama de novo em alguns segundos."
-            : "Ainda não consegui carregar a IA local.",
-        });
-      }
+      addMessage({
+        id: Date.now() + "-err",
+        role: "assistant",
+        content: "Ainda estou ativando o núcleo cognitivo… espere um pouco.",
+      });
       return;
     }
 
-    if (typing) return; // não deixa duas respostas ao mesmo tempo
+    if (typing) return;
 
     setTyping(true);
 
     const history = buildHistory();
-    const systemMsg = buildSystemPrompt();
+    const systemPrompt = buildSystemPrompt();
+
     let llmMessages;
 
-    if (isExternal) {
-      const emotionalTurn = {
-        role: "user",
-        content: `
-Sinal emocional detectado por um analisador de expressões faciais:
-"${text}"
-
-Faça um comentário curto (1–2 frases), acolhedor e natural,
-sem citar câmera ou análise facial. Só reage à energia.
-      `.trim(),
-      };
-
-      llmMessages = [systemMsg, ...history, emotionalTurn];
+    if (external) {
+      llmMessages = [
+        systemPrompt,
+        ...history,
+        {
+          role: "user",
+          content: `Leitura emocional detectada: "${text}".  
+Responda em 1–2 frases, de forma humana e acolhedora.`,
+        },
+      ];
     } else {
       const userMsg = {
         id: Date.now() + "-user",
@@ -110,20 +110,19 @@ sem citar câmera ou análise facial. Só reage à energia.
       };
       addMessage(userMsg);
 
-      llmMessages = [systemMsg, ...history, { role: "user", content: text }];
+      llmMessages = [
+        systemPrompt,
+        ...history,
+        { role: "user", content: text },
+      ];
     }
 
     const assistantId = Date.now() + "-assistant";
-    const assistantMsg = {
-      id: assistantId,
-      role: "assistant",
-      content: "",
-    };
-
-    setMessages((prev) => [...prev, assistantMsg]);
+    const assistantMsg = { id: assistantId, role: "assistant", content: "" };
+    addMessage(assistantMsg);
 
     try {
-      const stream = await engine.chat.completions.create({
+      const stream = await engine.chatCompletion({
         stream: true,
         messages: llmMessages,
       });
@@ -131,25 +130,27 @@ sem citar câmera ou análise facial. Só reage à energia.
       streamingRef.current = stream;
 
       for await (const chunk of stream) {
-        const delta = chunk?.choices?.[0]?.delta?.content;
+        const delta = chunk?.delta;
         if (!delta) continue;
 
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, content: m.content + delta } : m
+            m.id === assistantId
+              ? { ...m, content: m.content + delta }
+              : m
           )
         );
       }
     } catch (err) {
       console.error("Erro no streaming:", err);
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
             ? {
                 ...m,
                 content:
-                  m.content ||
-                  "Buguei um pouco aqui. Tenta mandar de novo, por favor?",
+                  "Deu uma travadinha aqui… tenta mandar de novo rapidinho.",
               }
             : m
         )
@@ -162,35 +163,24 @@ sem citar câmera ou análise facial. Só reage à energia.
 
   const stopStreaming = () => {
     try {
-      streamingRef.current?.close?.();
-      streamingRef.current?.cancel?.();
+      streamingRef.current?.return?.();
     } catch {}
     setTyping(false);
   };
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    sendToLLM(input.trim());
-    setInput("");
-  };
-
-  const handleKey = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
+  // ---------------------------------------------------------
+  // RENDER UI
+  // ---------------------------------------------------------
   return (
     <div style={ui.container}>
-      {/* faixa superior tipo “story bar” */}
+      {/* Faixa superior estilo stories */}
       <div style={ui.topStrip}>
         <div style={ui.storyDot(accentColor)} />
         <div style={ui.storyDot("rgba(249,115,22,0.7)")} />
         <div style={ui.storyDot("rgba(236,72,153,0.7)")} />
       </div>
 
-      {/* área de mensagens */}
+      {/* Chat */}
       <div style={ui.chat} ref={chatRef}>
         {messages.map((msg) => (
           <div
@@ -207,7 +197,7 @@ sem citar câmera ou análise facial. Só reage à energia.
 
         {typing && (
           <div style={ui.typingRow}>
-            <div style={ui.botBubbleTyping}>
+            <div style={ui.botTypingBubble}>
               <span style={ui.dot}></span>
               <span style={ui.dot}></span>
               <span style={ui.dot}></span>
@@ -216,7 +206,7 @@ sem citar câmera ou análise facial. Só reage à energia.
         )}
       </div>
 
-      {/* barra de input fixa embaixo */}
+      {/* Barra de input */}
       <div style={ui.inputBar}>
         <div style={ui.inputWrapper}>
           <textarea
@@ -224,14 +214,26 @@ sem citar câmera ou análise facial. Só reage à energia.
             rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKey}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (input.trim()) sendToLLM(input.trim());
+                setInput("");
+              }
+            }}
             placeholder="Manda ver…"
           />
         </div>
 
         {!typing ? (
-          <button style={ui.sendBtn} onClick={handleSend}>
-            <span style={{ fontSize: 16 }}>➤</span>
+          <button
+            style={ui.sendBtn}
+            onClick={() => {
+              if (input.trim()) sendToLLM(input.trim());
+              setInput("");
+            }}
+          >
+            ➤
           </button>
         ) : (
           <button style={ui.stopBtn} onClick={stopStreaming}>
@@ -243,6 +245,9 @@ sem citar câmera ou análise facial. Só reage à energia.
   );
 }
 
+// ---------------------------------------------------------
+// ESTILO — IGUAL AO SEU, sem tocar na vibe Paradox™
+// ---------------------------------------------------------
 const ui = {
   container: {
     flex: 1,
@@ -250,7 +255,7 @@ const ui = {
     flexDirection: "column",
     gap: 6,
     height: "100%",
-    minHeight: 0, // importante pra flex dentro do appShell
+    minHeight: 0,
   },
 
   topStrip: {
@@ -283,8 +288,8 @@ const ui = {
     borderBottomRightRadius: 4,
     color: "#fdf2f8",
     fontSize: 14,
-    lineHeight: 1.35,
     whiteSpace: "pre-wrap",
+    lineHeight: 1.35,
     boxShadow: "0 4px 10px rgba(0,0,0,0.25)",
   },
 
@@ -297,17 +302,16 @@ const ui = {
     background: "rgba(15,23,42,0.85)",
     color: "#e5e7eb",
     fontSize: 14,
-    lineHeight: 1.4,
     whiteSpace: "pre-wrap",
+    lineHeight: 1.4,
     border: "1px solid rgba(148,163,184,0.35)",
   },
 
   typingRow: {
     display: "flex",
-    justifyContent: "flex-start",
   },
 
-  botBubbleTyping: {
+  botTypingBubble: {
     display: "flex",
     gap: 4,
     padding: "6px 10px",
@@ -357,13 +361,12 @@ const ui = {
     border: "none",
     background:
       "linear-gradient(135deg, #f97316 0%, #ec4899 45%, #6366f1 100%)",
-    color: "#f9fafb",
+    color: "#fff",
+    cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    cursor: "pointer",
     boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
-    flexShrink: 0,
   },
 
   stopBtn: {
@@ -372,12 +375,11 @@ const ui = {
     borderRadius: "50%",
     border: "none",
     background: "#ef4444",
-    color: "#f9fafb",
+    color: "#fff",
+    cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    cursor: "pointer",
     boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
-    flexShrink: 0,
   },
 };

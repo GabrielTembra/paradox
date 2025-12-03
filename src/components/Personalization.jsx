@@ -10,20 +10,19 @@ export default function Personalization({ engine, onProfileChange }) {
 
   const [generating, setGenerating] = useState(false);
 
-  // ------------------------------------
-  // Gerar bio com phi-3-mini (WebLLM)
-  // ------------------------------------
+  // ============================================================
+  // GERAR BIO — WEBLLM 2025 API
+  // ============================================================
   const generateBio = async () => {
     if (!engine) {
-      setBio("IA local ainda não carregou.");
+      setBio("IA local ainda está carregando…");
       return;
     }
 
     setGenerating(true);
 
     const prompt = `
-Crie uma bio curta, criativa e humana com base nos dados abaixo.
-Não faça parecer IA. Tom leve, pessoal e autêntico.
+Crie uma bio curta, criativa e humana com as informações:
 
 Nome: ${username || "(não informado)"}
 Idade: ${age || "(não informado)"}
@@ -31,18 +30,22 @@ Cidade: ${city || "(não informado)"}
 
 Regras:
 - Máximo 130 caracteres.
-- Escreva em primeira pessoa.
-- Português brasileiro.
-`.trim();
+- Em primeira pessoa.
+- Tom natural, autêntico e emocional.
+- Evitar parecer IA.
+- Português do Brasil.
+    `.trim();
 
     try {
-      const result = await engine.chat.completions.create({
+      const completion = await engine.chatCompletion({
         messages: [{ role: "user", content: prompt }],
         stream: false,
       });
 
       const text =
-        result?.choices?.[0]?.message?.content || "Não consegui gerar uma bio.";
+        completion?.choices?.[0]?.message?.content ||
+        "Não consegui gerar uma bio.";
+
       setBio(text.trim());
     } catch (err) {
       console.error("Erro ao gerar bio:", err);
@@ -52,24 +55,31 @@ Regras:
     }
   };
 
+  // ============================================================
+  // SALVAR PERFIL
+  // ============================================================
   const saveProfile = () => {
     const profile = { username, age, city, bio, accent };
     onProfileChange?.(profile);
-    alert("Perfil salvo no Paradox!");
+    alert("Perfil salvo!");
   };
 
+  // ============================================================
+  // UI FINAL
+  // ============================================================
   return (
     <div style={ui.container}>
       <div style={ui.headerRow}>
         <div>
           <div style={ui.title}>Perfil do Paradox</div>
           <div style={ui.subtitle}>
-            Ajusta seu “@” interno pra conversa ficar mais sua.
+            Ajuste como o Paradox te reconhece e responde.
           </div>
         </div>
       </div>
 
       <div style={ui.form}>
+        {/* Nome */}
         <div style={ui.fieldGroup}>
           <label style={ui.label}>Nome</label>
           <input
@@ -80,6 +90,7 @@ Regras:
           />
         </div>
 
+        {/* Idade + Cidade */}
         <div style={ui.inlineRow}>
           <div style={{ ...ui.fieldGroup, flex: 1 }}>
             <label style={ui.label}>Idade</label>
@@ -104,8 +115,9 @@ Regras:
           </div>
         </div>
 
+        {/* Cor do Tema */}
         <div style={ui.fieldGroup}>
-          <label style={ui.label}>Cor do tema</label>
+          <label style={ui.label}>Cor do Tema</label>
           <div style={ui.colorRow}>
             <input
               type="color"
@@ -113,12 +125,14 @@ Regras:
               value={accent}
               onChange={(e) => setAccent(e.target.value)}
             />
+
             <div style={ui.colorPreview(accent)}>
               <span style={ui.colorPreviewText}>preview da bolha</span>
             </div>
           </div>
         </div>
 
+        {/* Bio */}
         <div style={ui.fieldGroup}>
           <label style={ui.label}>Bio</label>
           <textarea
@@ -129,6 +143,7 @@ Regras:
           />
         </div>
 
+        {/* Botão Gerar Bio */}
         <button
           style={{
             ...ui.primaryBtn,
@@ -141,6 +156,7 @@ Regras:
           {generating ? "Gerando bio…" : "Gerar bio com IA"}
         </button>
 
+        {/* Botão Salvar */}
         <button style={ui.secondaryBtn} onClick={saveProfile}>
           Salvar perfil
         </button>
@@ -149,6 +165,9 @@ Regras:
   );
 }
 
+// ============================================================
+// UI — MANTIDO 100% NO SEU ESTILO PARADOX
+// ============================================================
 const ui = {
   container: {
     flex: 1,
@@ -236,7 +255,6 @@ const ui = {
     height: 42,
     borderRadius: 12,
     border: "none",
-    padding: 0,
     background: "transparent",
     cursor: "pointer",
   },
@@ -251,8 +269,6 @@ const ui = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
-    boxSizing: "border-box",
   }),
 
   colorPreviewText: {

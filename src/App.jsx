@@ -1,37 +1,41 @@
 import { useState, useEffect } from "react";
+import { CreateMLCEngine } from "@mlc-ai/web-llm";
+
 import Chat from "./components/Chat";
 import FaceReader from "./components/FaceReader";
 import Personalization from "./components/Personalization";
-import * as webllm from "@mlc-ai/web-llm";
 
 export default function App() {
   const [engine, setEngine] = useState(null);
-  const [active, setActive] = useState("chat");
+  const [profile, setProfile] = useState({});
   const [externalMessage, setExternalMessage] = useState("");
+  const [active, setActive] = useState("chat");
 
   useEffect(() => {
-    async function load() {
+    async function loadEngine() {
       try {
-        const handler = new webllm.WebWorkerMLCEngineHandler();
+        const workerUrl = new URL(
+          "/workers/webllm.worker.js",
+          window.location.origin
+        );
 
-        const ENGINE_CONFIG = {
+        const eng = await CreateMLCEngine(workerUrl, {
           model_list: [
             {
               model_url:
                 "https://huggingface.co/mlc-ai/RedPajama-INCITE-Chat-3B-v1-q4f32_1/resolve/main/",
-              local_id: "RedPajama-INCITE-Chat-3B-v1-q4f32_1",
+              local_id: "rpj-3b",
             },
           ],
-        };
+        });
 
-        const eng = await webllm.CreateMLCEngine(handler, ENGINE_CONFIG);
         setEngine(eng);
-      } catch (e) {
-        console.error("Erro ao inicializar WebLLM:", e);
+      } catch (err) {
+        console.error("Erro ao iniciar WebLLM:", err);
       }
     }
 
-    load();
+    loadEngine();
   }, []);
 
   return (
@@ -40,6 +44,7 @@ export default function App() {
 
       <div style={ui.cardWrapper}>
         <div style={ui.card}>
+          {/* HEADER */}
           <div style={ui.header}>
             <div style={ui.headerLeft}>
               <div style={ui.avatar}>P</div>
@@ -53,6 +58,7 @@ export default function App() {
             <div style={ui.dot} />
           </div>
 
+          {/* ABAS */}
           <div style={ui.tabs}>
             <button
               style={active === "chat" ? ui.tabActive : ui.tab}
@@ -78,18 +84,28 @@ export default function App() {
 
           <div style={ui.tabUnderline} />
 
+          {/* CONTEÚDO */}
           <div style={ui.content}>
             {active === "chat" && (
-              <Chat engine={engine} externalMessage={externalMessage} />
+              <Chat
+                engine={engine}
+                externalMessage={externalMessage}
+                profile={profile}
+              />
             )}
+
             {active === "face" && (
               <FaceReader
                 engine={engine}
                 onAnalysisReady={(msg) => setExternalMessage(msg)}
               />
             )}
+
             {active === "profile" && (
-              <Personalization engine={engine} onProfileChange={() => {}} />
+              <Personalization
+                engine={engine}
+                onProfileChange={(p) => setProfile(p)}
+              />
             )}
           </div>
         </div>
@@ -99,7 +115,7 @@ export default function App() {
 }
 
 //
-// ESTILOS — IGUAL AO SEU
+// ESTILOS
 //
 const ui = {
   appWrapper: {

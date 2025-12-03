@@ -13,13 +13,11 @@ export default function FaceReader({ engine, onAnalysisReady }) {
   const modelsLoadedRef = useRef(false);
   const lastEmotionRef = useRef(null);
   const cooldownRef = useRef(false);
-
-  // Suavização simples (evita jitter)
   const emotionBufferRef = useRef([]);
 
-  // ------------------------------------------------------------
-  // 1. Carregar MODELOS e iniciar câmera
-  // ------------------------------------------------------------
+  // ============================================================
+  // 1. CARREGAR MODELOS FACIAIS
+  // ============================================================
   useEffect(() => {
     let cancelled = false;
 
@@ -36,13 +34,12 @@ export default function FaceReader({ engine, onAnalysisReady }) {
         if (cancelled) return;
 
         modelsLoadedRef.current = true;
-        setStatus("Modelos carregados • ativando câmera…");
+        setStatus("Modelos carregados — ativando câmera…");
 
         await startCamera();
-      } catch (error) {
-        console.error("Erro ao carregar modelos/câmera:", error);
-        if (!cancelled)
-          setStatus("Erro ao carregar modelos ou acessar câmera.");
+      } catch (err) {
+        console.error("Erro ao carregar modelos:", err);
+        setStatus("Erro ao carregar modelos.");
       }
     }
 
@@ -54,9 +51,9 @@ export default function FaceReader({ engine, onAnalysisReady }) {
     };
   }, []);
 
-  // ------------------------------------------------------------
-  // 2. Iniciar câmera
-  // ------------------------------------------------------------
+  // ============================================================
+  // 2. CÂMERA
+  // ============================================================
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -78,23 +75,17 @@ export default function FaceReader({ engine, onAnalysisReady }) {
     }
   };
 
-  // ------------------------------------------------------------
-  // 3. LOOP DE DETECÇÃO — suave e sem jitter
-  // ------------------------------------------------------------
+  // ============================================================
+  // 3. LOOP DE DETECÇÃO + BUFFER + DEBOUNCE
+  // ============================================================
   useEffect(() => {
     if (!engine) return;
     if (!modelsLoadedRef.current) return;
 
     let cancelled = false;
 
-    const interval = setInterval(async () => {
-      if (
-        cancelled ||
-        !videoRef.current ||
-        cooldownRef.current ||
-        !modelsLoadedRef.current
-      )
-        return;
+    const loop = setInterval(async () => {
+      if (cancelled || cooldownRef.current || !videoRef.current) return;
 
       try {
         const detection = await faceapi
@@ -109,21 +100,21 @@ export default function FaceReader({ engine, onAnalysisReady }) {
           return;
         }
 
-        // pega emoção dominante
         const sorted = Object.entries(detection.expressions)
           .sort((a, b) => b[1] - a[1])
-          .map((s) => s[0]);
+          .map((e) => e[0]);
+
         const top = sorted[0];
 
-        // suavização: amortiza as últimas emoções
+        // Buffer de 5 frames para reduzir jitter
         emotionBufferRef.current.push(top);
-        if (emotionBufferRef.current.length > 5)
+        if (emotionBufferRef.current.length > 5) {
           emotionBufferRef.current.shift();
+        }
 
         const stableEmotion = mode(emotionBufferRef.current);
         setCurrentEmotion(stableEmotion);
 
-        // dispara análise quando ALTERAÇÃO real
         if (stableEmotion !== lastEmotionRef.current) {
           lastEmotionRef.current = stableEmotion;
           cooldownRef.current = true;
@@ -135,17 +126,16 @@ export default function FaceReader({ engine, onAnalysisReady }) {
           generateNarrative(stableEmotion);
         }
       } catch (err) {
-        console.error("Erro na detecção:", err);
+        console.error("Erro na detecção facial:", err);
       }
     }, 250);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearInterval(loop);
     };
   }, [engine]);
 
-  // Utilidade: pega o valor mais frequente (moda)
   function mode(arr) {
     return arr
       .sort(
@@ -156,41 +146,41 @@ export default function FaceReader({ engine, onAnalysisReady }) {
       .pop();
   }
 
-  // ------------------------------------------------------------
-  // 4. Gerar narrativa via LLM
-  // ------------------------------------------------------------
-  const generateNarrative = async (emotion) => {
+  // ============================================================
+  // 4. PARADOX — NARRATIVA VIA WEBLLM
+  // ============================================================
+  async function generateNarrative(emotion) {
     if (!engine) return;
 
     const prompt = `
-Você é o Paradox. Gere uma leitura emocional suave, introspectiva e humana baseada na microexpressão: "${emotion}".
-Máximo 2 frases. Nada de diagnósticos médicos.
-`.trim();
+Traduza a microexpressão "${emotion}" em até 2 frases curtas,
+humanas, realistas e introspectivas. Evite parecer IA.
+Não use termos clínicos.
+    `.trim();
 
     try {
-      const result = await engine.chat.completions.create({
+      const completion = await engine.chatCompletion({
         messages: [{ role: "user", content: prompt }],
         stream: false,
       });
 
       const text =
-        result?.choices?.[0]?.message?.content ||
+        completion?.choices?.[0]?.message?.content ||
         "Não consegui interpretar esse momento.";
 
       setLastNarrative(text);
       onAnalysisReady?.(text);
     } catch (err) {
-      console.error("Erro na IA:", err);
-      const fallback =
-        "Percebi uma oscilação, mas não consegui traduzir agora.";
+      console.error("Erro ao gerar narrativa:", err);
+      const fallback = "Percebi algo, mas não consegui traduzir agora.";
       setLastNarrative(fallback);
       onAnalysisReady?.(fallback);
     }
-  };
+  }
 
-  // ------------------------------------------------------------
-  // UI
-  // ------------------------------------------------------------
+  // ============================================================
+  // UI COMPLETA
+  // ============================================================
   return (
     <div style={ui.container}>
       <div style={ui.headerRow}>
@@ -226,9 +216,9 @@ Máximo 2 frases. Nada de diagnósticos médicos.
   );
 }
 
-// ------------------------------------------------------------
-// ESTILOS
-// ------------------------------------------------------------
+// ============================================================
+// UI — 100% compatível com seu layout atual
+// ============================================================
 const ui = {
   container: {
     flex: 1,
@@ -271,7 +261,12 @@ const ui = {
     objectFit: "cover",
     background: "#020617",
   },
-  cardsRow: { display: "flex", flexDirection: "column", gap: 10, marginTop: 8 },
+  cardsRow: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 8,
+  },
   emotionCard: {
     padding: 12,
     borderRadius: 16,
