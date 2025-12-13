@@ -1,4 +1,3 @@
-// src/components/Chat.jsx
 import { useState, useEffect, useRef } from "react";
 
 export default function Chat({ engine, externalMessage, profile }) {
@@ -18,7 +17,6 @@ export default function Chat({ engine, externalMessage, profile }) {
 
   const accentColor = profile?.accent || "#f97316";
 
-  // Scroll automático
   useEffect(() => {
     chatRef.current?.scrollTo({
       top: chatRef.current.scrollHeight,
@@ -26,15 +24,11 @@ export default function Chat({ engine, externalMessage, profile }) {
     });
   }, [messages, typing]);
 
-  // Entrada externa do FaceReader
   useEffect(() => {
     if (!externalMessage) return;
     sendToLLM(externalMessage, { external: true });
   }, [externalMessage]);
 
-  // ---------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------
   const addMessage = (msg) => {
     setMessages((prev) => [...prev, msg]);
   };
@@ -70,9 +64,21 @@ Regras:
     };
   };
 
-  // ---------------------------------------------------------
-  // ENVIO PARA O LLM — STREAMING
-  // ---------------------------------------------------------
+  const fetchNewtonSystem = async (text) => {
+    try {
+      const r = await fetch("http://localhost:3939/infer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const j = await r.json();
+      if (j?.systemPrompt) {
+        return { role: "system", content: j.systemPrompt };
+      }
+    } catch {}
+    return null;
+  };
+
   const sendToLLM = async (text, { external = false } = {}) => {
     if (!engine) {
       addMessage({
@@ -88,13 +94,15 @@ Regras:
     setTyping(true);
 
     const history = buildHistory();
-    const systemPrompt = buildSystemPrompt();
+    const baseSystem = buildSystemPrompt();
+    const newtonSystem = await fetchNewtonSystem(text);
 
     let llmMessages;
 
     if (external) {
       llmMessages = [
-        systemPrompt,
+        baseSystem,
+        ...(newtonSystem ? [newtonSystem] : []),
         ...history,
         {
           role: "user",
@@ -111,15 +119,15 @@ Responda em 1–2 frases, de forma humana e acolhedora.`,
       addMessage(userMsg);
 
       llmMessages = [
-        systemPrompt,
+        baseSystem,
+        ...(newtonSystem ? [newtonSystem] : []),
         ...history,
         { role: "user", content: text },
       ];
     }
 
     const assistantId = Date.now() + "-assistant";
-    const assistantMsg = { id: assistantId, role: "assistant", content: "" };
-    addMessage(assistantMsg);
+    addMessage({ id: assistantId, role: "assistant", content: "" });
 
     try {
       const stream = await engine.chatCompletion({
@@ -141,17 +149,11 @@ Responda em 1–2 frases, de forma humana e acolhedora.`,
           )
         );
       }
-    } catch (err) {
-      console.error("Erro no streaming:", err);
-
+    } catch {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? {
-                ...m,
-                content:
-                  "Deu uma travadinha aqui… tenta mandar de novo rapidinho.",
-              }
+            ? { ...m, content: "Deu uma travadinha aqui… tenta de novo." }
             : m
         )
       );
@@ -168,19 +170,14 @@ Responda em 1–2 frases, de forma humana e acolhedora.`,
     setTyping(false);
   };
 
-  // ---------------------------------------------------------
-  // RENDER UI
-  // ---------------------------------------------------------
   return (
     <div style={ui.container}>
-      {/* Faixa superior estilo stories */}
       <div style={ui.topStrip}>
         <div style={ui.storyDot(accentColor)} />
         <div style={ui.storyDot("rgba(249,115,22,0.7)")} />
         <div style={ui.storyDot("rgba(236,72,153,0.7)")} />
       </div>
 
-      {/* Chat */}
       <div style={ui.chat} ref={chatRef}>
         {messages.map((msg) => (
           <div
@@ -206,7 +203,6 @@ Responda em 1–2 frases, de forma humana e acolhedora.`,
         )}
       </div>
 
-      {/* Barra de input */}
       <div style={ui.inputBar}>
         <div style={ui.inputWrapper}>
           <textarea
@@ -245,9 +241,6 @@ Responda em 1–2 frases, de forma humana e acolhedora.`,
   );
 }
 
-// ---------------------------------------------------------
-// ESTILO — IGUAL AO SEU, sem tocar na vibe Paradox™
-// ---------------------------------------------------------
 const ui = {
   container: {
     flex: 1,
@@ -257,20 +250,17 @@ const ui = {
     height: "100%",
     minHeight: 0,
   },
-
   topStrip: {
     display: "flex",
     gap: 6,
     padding: "2px 2px 0 2px",
   },
-
   storyDot: (color) => ({
     flex: 1,
     height: 4,
     borderRadius: 999,
     background: color,
   }),
-
   chat: {
     flex: 1,
     overflowY: "auto",
@@ -279,7 +269,6 @@ const ui = {
     flexDirection: "column",
     gap: 4,
   },
-
   userBubble: {
     maxWidth: "80%",
     alignSelf: "flex-end",
@@ -292,7 +281,6 @@ const ui = {
     lineHeight: 1.35,
     boxShadow: "0 4px 10px rgba(0,0,0,0.25)",
   },
-
   botBubble: {
     maxWidth: "84%",
     alignSelf: "flex-start",
@@ -306,11 +294,9 @@ const ui = {
     lineHeight: 1.4,
     border: "1px solid rgba(148,163,184,0.35)",
   },
-
   typingRow: {
     display: "flex",
   },
-
   botTypingBubble: {
     display: "flex",
     gap: 4,
@@ -319,7 +305,6 @@ const ui = {
     background: "rgba(15,23,42,0.9)",
     border: "1px solid rgba(148,163,184,0.4)",
   },
-
   dot: {
     width: 6,
     height: 6,
@@ -327,14 +312,12 @@ const ui = {
     background: "#9ca3af",
     animation: "pulse 1.4s infinite ease-in-out",
   },
-
   inputBar: {
     display: "flex",
     alignItems: "center",
     gap: 6,
     paddingTop: 4,
   },
-
   inputWrapper: {
     flex: 1,
     background: "rgba(15,23,42,0.9)",
@@ -342,7 +325,6 @@ const ui = {
     padding: "6px 10px",
     border: "1px solid rgba(148,163,184,0.6)",
   },
-
   input: {
     width: "100%",
     border: "none",
@@ -353,7 +335,6 @@ const ui = {
     fontSize: 14,
     lineHeight: 1.4,
   },
-
   sendBtn: {
     width: 38,
     height: 38,
@@ -368,7 +349,6 @@ const ui = {
     justifyContent: "center",
     boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
   },
-
   stopBtn: {
     width: 38,
     height: 38,

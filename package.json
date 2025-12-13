@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.80",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
     "face-api.js": "^0.22.2",
     "openai": "^6.9.1",
     "react": "^19.1.1",
